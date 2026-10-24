@@ -27,6 +27,7 @@
 const { app, BrowserWindow, Menu, ipcMain, session, shell, dialog, safeStorage } = require("electron");
 const { createChatGPT, encryptedStore } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
+const { createOAuthManager } = require("./auth/oauth-manager.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
@@ -134,6 +135,7 @@ if (process.argv.includes("--browser-service")) {
 let serverProcess = null;
 let chatgpt = null;
 let chatgptChild = null;
+let oauthManager = null;
 // Per-launch request capability, never OAuth tokens and never renderer state.
 let desktopAPISecret = null;
 const trustedAppWindows = new Set();
@@ -611,6 +613,31 @@ async function main() {
 		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) return { error: "Untrusted desktop request." };
 		if (!chatgpt || !serverProcess?.connected) return { available: false, pending: false, activeId: null, accounts: [], error: "ChatGPT sign-in requires the desktop app's private server connection. Browser-only and externally launched development servers keep API-key connections." };
 		return chatGPTControl(command, chatgpt);
+	});
+
+	oauthManager = createOAuthManager({
+		userDataDir: app.getPath("userData"),
+		safeStorage,
+		openExternal: (target) => shell.openExternal(target),
+		chatgptInstance: chatgpt,
+		onProviderChange: (providerId) => {
+			for (const win of BrowserWindow.getAllWindows()) win.webContents.send("lh:oauth:changed", providerId);
+		},
+	});
+
+	ipcMain.handle("lh:oauth:control", async (event, command) => {
+		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) return { error: "Untrusted desktop request." };
+		if (!oauthManager) return { error: "OAuth manager unavailable." };
+		try {
+			if (command?.op === "list") return oauthManager.listProviders();
+			if (command?.op === "status") return await oauthManager.status(command.providerId);
+			if (command?.op === "login") return await oauthManager.login(command.providerId, command.accountId);
+			if (command?.op === "cancel") return await oauthManager.cancel(command.providerId);
+			if (command?.op === "disconnect") return await oauthManager.disconnect(command.providerId, command.accountId);
+			return { error: "Unsupported OAuth control operation." };
+		} catch (err) {
+			return { error: err.message || "OAuth control operation failed." };
+		}
 	});
 
 	installMenu();

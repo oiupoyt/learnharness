@@ -43,6 +43,20 @@ contextBridge.exposeInMainWorld("lh", {
 			return () => ipcRenderer.removeListener("lh:chatgpt:changed", listener);
 		},
 	},
+	oauth: {
+		listProviders: () => ipcRenderer.invoke("lh:oauth:control", { op: "list" }),
+		status: (providerId) => ipcRenderer.invoke("lh:oauth:control", { op: "status", providerId }),
+		login: (providerId, accountId) => ipcRenderer.invoke("lh:oauth:control", { op: "login", providerId, accountId }),
+		cancel: (providerId) => ipcRenderer.invoke("lh:oauth:control", { op: "cancel", providerId }),
+		disconnect: (providerId, accountId) => ipcRenderer.invoke("lh:oauth:control", { op: "disconnect", providerId, accountId }),
+		onChange: (providerId, cb) => {
+			const listener = (_event, changedId) => {
+				if (!changedId || changedId === providerId) cb();
+			};
+			ipcRenderer.on("lh:oauth:changed", listener);
+			return () => ipcRenderer.removeListener("lh:oauth:changed", listener);
+		},
+	},
 	expandWindow: () => ipcRenderer.send("lh:expand-window"),
 	onZoom: (cb) => {
 		const listener = (_event, factor) => cb(factor);
