@@ -456,9 +456,9 @@ export function KeysSection({
 				</div>}
 			</SettingsGroup>
 
-			<SettingsGroup label="Subscriptions & Logins" testid="group-subscriptions">
-				<div data-testid="group-chatgpt" className="mb-4"><ChatGPTConnection /></div>
-				<OAuthProvidersSection onSelectKey={(keyId) => setOpenRow(keyId)} />
+			<SettingsGroup label="Subscriptions" testid="group-subscriptions">
+				<div data-testid="group-chatgpt" className="mb-3"><ChatGPTConnection /></div>
+				<OAuthProvidersSection />
 			</SettingsGroup>
 
 			{(["Dictation", "Search"] as const).map((label) => <SettingsGroup key={label} label={label} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
