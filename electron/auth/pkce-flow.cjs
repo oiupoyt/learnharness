@@ -24,7 +24,7 @@ async function startPkceLoopback({
 	scopes = [],
 	extraParams = {},
 	openExternal = async () => {},
-	timeoutMs = 180000,
+	timeoutMs = 120000,
 	signal,
 }) {
 	const verifier = randomString();
@@ -42,10 +42,6 @@ async function startPkceLoopback({
 			listener.closeAllConnections();
 		} catch {}
 	};
-
-	if (signal) {
-		signal.addEventListener("abort", cleanup, { once: true });
-	}
 
 	await new Promise((resolve, reject) => {
 		listener.once("error", reject);
@@ -71,8 +67,23 @@ async function startPkceLoopback({
 	}
 
 	const codePromise = new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			cleanup();
+			return reject(fail("cancelled", "OAuth sign-in cancelled."));
+		}
+
+		const onAbort = () => {
+			cleanup();
+			reject(fail("cancelled", "OAuth sign-in cancelled."));
+		};
+
+		if (signal) {
+			signal.addEventListener("abort", onAbort, { once: true });
+		}
+
 		timer = setTimeout(() => {
 			cleanup();
+			signal?.removeEventListener("abort", onAbort);
 			reject(fail("timeout", "OAuth sign-in timed out."));
 		}, timeoutMs);
 
@@ -101,6 +112,7 @@ async function startPkceLoopback({
 			if (params.get("state") !== expectedState) {
 				res.writeHead(400, { "Content-Type": "text/plain" }).end("State mismatch.");
 				cleanup();
+				signal?.removeEventListener("abort", onAbort);
 				reject(fail("identity", "OAuth state validation failed."));
 				return;
 			}
@@ -113,6 +125,7 @@ async function startPkceLoopback({
 					"Sign-in was not completed. You may close this window.",
 				);
 				cleanup();
+				signal?.removeEventListener("abort", onAbort);
 				reject(fail(errParam === "access_denied" ? "cancelled" : "identity", `OAuth error: ${errParam}`));
 				return;
 			}
@@ -121,6 +134,7 @@ async function startPkceLoopback({
 			if (!code) {
 				res.writeHead(400, { "Content-Type": "text/plain" }).end("Missing authorization code.");
 				cleanup();
+				signal?.removeEventListener("abort", onAbort);
 				reject(fail("protocol", "No code returned in callback."));
 				return;
 			}
@@ -129,6 +143,7 @@ async function startPkceLoopback({
 				"Authentication successful! You may return to LearnHarness and close this tab.",
 			);
 			cleanup();
+			signal?.removeEventListener("abort", onAbort);
 			resolve({ code, verifier, redirectUri });
 		});
 	});

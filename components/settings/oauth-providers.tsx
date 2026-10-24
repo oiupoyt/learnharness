@@ -8,7 +8,6 @@ import {
 	OAUTH_PROVIDERS,
 	type OAuthProviderId,
 	type OAuthProviderStatus,
-	type OAuthAccount,
 	type OAuthProviderDescriptor,
 } from "@/src/core";
 
@@ -133,6 +132,7 @@ function SubscriptionRow({
 	const [dialog, setDialog] = useState<"connect" | "manage" | null>(null);
 	const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [keyInput, setKeyInput] = useState("");
 
 	const refresh = async () => {
 		if (!window.lh?.oauth) return;
@@ -156,7 +156,6 @@ function SubscriptionRow({
 		try {
 			const s = await window.lh.oauth.login(provider.id);
 			setStatus(s);
-			// For PKCE flows (browser callback), close dialog once connected or keep open if pending
 			if (!s.pending) setDialog(null);
 		} catch (err: any) {
 			setError(err?.message || `${provider.name} sign-in failed.`);
@@ -172,7 +171,8 @@ function SubscriptionRow({
 			const s = await window.lh.oauth.cancel(provider.id);
 			setStatus(s);
 			setDialog(null);
-		} finally {
+			setError(null);
+		} catch {} finally {
 			setBusy(false);
 		}
 	};
@@ -185,7 +185,8 @@ function SubscriptionRow({
 			setStatus(s);
 			setDialog(null);
 			setConfirmDisconnect(false);
-		} finally {
+			setError(null);
+		} catch {} finally {
 			setBusy(false);
 		}
 	};
@@ -252,11 +253,14 @@ function SubscriptionRow({
 
 			{error && !dialog && <p role="alert" className="text-xs text-red-400">{error}</p>}
 
-			{/* Connection & Management Modal Dialog (Byte-for-byte matching ChatGPT style) */}
+			{/* Connection & Management Modal Dialog (Cleanly matching ChatGPT style) */}
 			{dialog && (
 				<AccountDialog
-					onClose={() => setDialog(null)}
-					busy={busy}
+					onClose={() => {
+						if (status?.pending) void handleCancel();
+						else setDialog(null);
+					}}
+					busy={busy && !status?.pending}
 					title={`${provider.name} connection`}
 				>
 					{dialog === "connect" ? (
@@ -268,7 +272,7 @@ function SubscriptionRow({
 								{notice}
 							</p>
 
-							{/* Device code verification block if in-flight */}
+							{/* In-flight Device Code verification prompt */}
 							{status?.pending && status?.devicePrompt && (
 								<div className="my-4 border border-border bg-muted/30 p-3">
 									<p className="text-xs text-foreground">
@@ -293,10 +297,55 @@ function SubscriptionRow({
 								</div>
 							)}
 
+							{/* In-flight Browser PKCE wait prompt */}
 							{status?.pending && !status?.devicePrompt && (
 								<p role="status" className="mt-3 text-xs text-muted-foreground">
 									Waiting for browser sign-in…
 								</p>
+							)}
+
+							{/* Optional API Key Alternative in Connect Dialog */}
+							{provider.envVarAlternative && !status?.pending && (
+								<div className="mt-4 border-t border-border pt-3">
+									<p className="text-xs text-muted-foreground">
+										Or connect directly with your {provider.name} key:
+									</p>
+									<div className="mt-2 flex items-center gap-2">
+										<input
+											type="password"
+											placeholder={`Paste ${provider.envVarAlternative}...`}
+											value={keyInput}
+											onChange={(e) => setKeyInput(e.target.value)}
+											className="flex-1 rounded-sm border border-border bg-background px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground/60"
+										/>
+										<Button
+											type="button"
+											size="xs"
+											variant="outline"
+											disabled={!keyInput.trim() || busy}
+											onClick={async () => {
+												if (!keyInput.trim()) return;
+												setBusy(true);
+												try {
+													await fetch(`/api/keys/${provider.envVarAlternative}`, {
+														method: "PUT",
+														headers: { "Content-Type": "application/json" },
+														body: JSON.stringify({ value: keyInput.trim() }),
+													});
+													setDialog(null);
+													setKeyInput("");
+													await refresh();
+												} catch (err: any) {
+													setError(err.message || "Failed to save key.");
+												} finally {
+													setBusy(false);
+												}
+											}}
+										>
+											Save Key
+										</Button>
+									</div>
+								</div>
 							)}
 
 							{error && <p role="alert" className="mt-3 text-xs text-red-400">{error}</p>}
@@ -305,8 +354,7 @@ function SubscriptionRow({
 								<Button
 									variant="ghost"
 									size="sm"
-									disabled={busy}
-									onClick={() => (status?.pending ? handleCancel() : setDialog(null))}
+									onClick={() => (status?.pending ? void handleCancel() : setDialog(null))}
 								>
 									Cancel
 								</Button>
