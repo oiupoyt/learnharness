@@ -16,3 +16,7 @@ auth.json
 
 # dev-fresh launcher scratch (fresh-user sim): disposable per launch
 .fresh-data/
+
+# learnharness-dev launcher state
+.dev-state/
+.doublecheck/
