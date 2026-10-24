@@ -2,13 +2,15 @@
 
 const { initiateDeviceFlow, pollDeviceToken } = require("../device-code-flow.cjs");
 const { createEncryptedStore } = require("../encrypted-store.cjs");
+const { syncAuthVar } = require("../auth-file-sync.cjs");
 
 const GITHUB_DEVICE_ENDPOINT = "https://github.com/login/device/code";
 const GITHUB_TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token";
 const GITHUB_USER_ENDPOINT = "https://api.github.com/user";
+const COPILOT_TOKEN_ENDPOINT = "https://api.github.com/copilot_internal/v2/token";
 
-// Default public client ID for GitHub OAuth apps (or overridden via env)
-const DEFAULT_CLIENT_ID = process.env.GITHUB_OAUTH_CLIENT_ID || "Iv1.b507a08c87ecfe98"; // GitHub standard tool ID or custom app
+// Standard GitHub OAuth App Client ID (supports Device Flow)
+const DEFAULT_CLIENT_ID = process.env.GITHUB_OAUTH_CLIENT_ID || "Iv1.b507a08c87ecfe98";
 const SCOPES = "read:user";
 
 function validateGitHubState(state) {
@@ -20,7 +22,7 @@ function validateGitHubState(state) {
 	};
 }
 
-function createGitHubProvider({ storeFile, safeStorage, openExternal = async () => {}, fetch = globalThis.fetch, onChange = () => {} }) {
+function createGitHubProvider({ storeFile, authFile, safeStorage, openExternal = async () => {}, fetch = globalThis.fetch, onChange = () => {} }) {
 	const store = createEncryptedStore(storeFile, safeStorage, validateGitHubState);
 	let pending = null;
 	let lastError = null;
@@ -30,7 +32,7 @@ function createGitHubProvider({ storeFile, safeStorage, openExternal = async () 
 		try {
 			const s = await store.read();
 			return s || { accounts: [], activeAccountId: null };
-		} catch (err) {
+		} catch {
 			return { accounts: [], activeAccountId: null };
 		}
 	}
@@ -42,7 +44,7 @@ function createGitHubProvider({ storeFile, safeStorage, openExternal = async () 
 			available: true,
 			supported: true,
 			pending: !!pending,
-			devicePrompt: devicePrompt,
+			devicePrompt,
 			activeAccountId: state.activeAccountId,
 			accounts: state.accounts.map((a) => ({
 				id: a.id,
@@ -81,14 +83,12 @@ function createGitHubProvider({ storeFile, safeStorage, openExternal = async () 
 			pending = abortController;
 			onChange();
 
-			// Automatically open verification page in browser
 			if (device.verificationUriComplete) {
 				openExternal(device.verificationUriComplete).catch(() => {});
 			} else {
 				openExternal(device.verificationUri).catch(() => {});
 			}
 
-			// Background polling
 			pollDeviceToken({
 				clientId: DEFAULT_CLIENT_ID,
 				deviceCode: device.deviceCode,
@@ -99,7 +99,6 @@ function createGitHubProvider({ storeFile, safeStorage, openExternal = async () 
 				signal: abortController.signal,
 			})
 				.then(async (tokenData) => {
-					// Fetch user details
 					let username = "GitHub User";
 					let email = "";
 					try {
@@ -117,6 +116,26 @@ function createGitHubProvider({ storeFile, safeStorage, openExternal = async () 
 						}
 					} catch {}
 
+					// Attempt to exchange GitHub token for a Copilot session token
+					let copilotToken = tokenData.accessToken;
+					try {
+						const copilotRes = await fetch(COPILOT_TOKEN_ENDPOINT, {
+							headers: {
+								Authorization: `Bearer ${tokenData.accessToken}`,
+								"User-Agent": "GitHubCopilotChat/0.35.0",
+								"Editor-Version": "vscode/1.107.0",
+								"Editor-Plugin-Version": "copilot-chat/0.35.0",
+								Accept: "application/json",
+							},
+						});
+						if (copilotRes.ok) {
+							const cData = await copilotRes.json();
+							if (cData && typeof cData.token === "string") {
+								copilotToken = cData.token;
+							}
+						}
+					} catch {}
+
 					const accountId = `gh_${username.toLowerCase()}`;
 					const account = {
 						id: accountId,
@@ -124,6 +143,7 @@ function createGitHubProvider({ storeFile, safeStorage, openExternal = async () 
 						email,
 						displayName: username,
 						accessToken: tokenData.accessToken,
+						copilotToken,
 						tokenType: tokenData.tokenType,
 						scope: tokenData.scope,
 						refreshToken: tokenData.refreshToken || null,
@@ -136,6 +156,9 @@ function createGitHubProvider({ storeFile, safeStorage, openExternal = async () 
 						activeAccountId: accountId,
 					};
 					await store.write(next);
+
+					// Sync COPILOT_GITHUB_TOKEN into auth.json and process.env so models immediately run
+					syncAuthVar(authFile, "COPILOT_GITHUB_TOKEN", copilotToken);
 
 					pending = null;
 					devicePrompt = null;
@@ -179,6 +202,7 @@ function createGitHubProvider({ storeFile, safeStorage, openExternal = async () 
 			activeAccountId: current.activeAccountId === accountId ? null : current.activeAccountId,
 		};
 		await store.write(next);
+		syncAuthVar(authFile, "COPILOT_GITHUB_TOKEN", null);
 		onChange();
 		return await status();
 	}

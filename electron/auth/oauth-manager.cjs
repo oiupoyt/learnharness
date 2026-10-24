@@ -2,26 +2,55 @@
 
 const path = require("node:path");
 const { createGitHubProvider } = require("./providers/github.cjs");
-const { createStubProvider } = require("./providers/stubs.cjs");
+const { createClaudeProvider } = require("./providers/claude.cjs");
+const { createAntigravityProvider } = require("./providers/antigravity.cjs");
+const { createGrokProvider } = require("./providers/grok.cjs");
 const { OAUTH_PROVIDERS } = require("./descriptors.cjs");
 
 function createOAuthManager({ userDataDir, safeStorage, openExternal, fetch = globalThis.fetch, chatgptInstance, onProviderChange = () => {} }) {
+	const authFile = path.join(userDataDir, "auth.json");
+
 	const github = createGitHubProvider({
 		storeFile: path.join(userDataDir, "github-credentials.enc.json"),
+		authFile,
 		safeStorage,
 		openExternal,
 		fetch,
 		onChange: () => onProviderChange("github-copilot"),
 	});
 
-	const stubs = {
-		claude: createStubProvider("claude"),
-		"google-antigravity": createStubProvider("google-antigravity"),
-		grok: createStubProvider("grok"),
-	};
+	const claude = createClaudeProvider({
+		storeFile: path.join(userDataDir, "claude-credentials.enc.json"),
+		authFile,
+		safeStorage,
+		openExternal,
+		fetch,
+		onChange: () => onProviderChange("claude"),
+	});
+
+	const antigravity = createAntigravityProvider({
+		storeFile: path.join(userDataDir, "antigravity-credentials.enc.json"),
+		authFile,
+		safeStorage,
+		openExternal,
+		fetch,
+		onChange: () => onProviderChange("google-antigravity"),
+	});
+
+	const grok = createGrokProvider({
+		storeFile: path.join(userDataDir, "grok-credentials.enc.json"),
+		authFile,
+		safeStorage,
+		openExternal,
+		fetch,
+		onChange: () => onProviderChange("grok"),
+	});
 
 	function getProvider(providerId) {
 		if (providerId === "github-copilot") return github;
+		if (providerId === "claude") return claude;
+		if (providerId === "google-antigravity") return antigravity;
+		if (providerId === "grok") return grok;
 		if (providerId === "chatgpt") {
 			return {
 				id: "chatgpt",
@@ -73,7 +102,6 @@ function createOAuthManager({ userDataDir, safeStorage, openExternal, fetch = gl
 				},
 			};
 		}
-		if (stubs[providerId]) return stubs[providerId];
 		throw new Error(`Unknown OAuth provider: ${providerId}`);
 	}
 

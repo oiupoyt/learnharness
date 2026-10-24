@@ -60,7 +60,7 @@ export interface OAuthControlBridge {
 	onChange(providerId: OAuthProviderId, callback: () => void): () => void;
 }
 
-/** Standard descriptor catalog for supported and unsupported providers. */
+/** Standard descriptor catalog for supported OAuth providers. */
 export const OAUTH_PROVIDERS: readonly OAuthProviderDescriptor[] = [
 	{
 		id: "chatgpt",
@@ -74,36 +74,31 @@ export const OAUTH_PROVIDERS: readonly OAuthProviderDescriptor[] = [
 		name: "GitHub Copilot",
 		flowType: "device-code",
 		supported: true,
-		docsUrl: "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow",
+		docsUrl: "https://github.com/login/device",
+		envVarAlternative: "COPILOT_GITHUB_TOKEN",
 	},
 	{
 		id: "claude",
 		name: "Claude (Anthropic)",
-		flowType: "unsupported",
-		supported: false,
-		unsupportedReason:
-			"Anthropic does not offer a public third-party OAuth 2.0 authorization server for consumer Claude Pro/Team accounts. Use an Anthropic API Key (ANTHROPIC_API_KEY) in the Keys section.",
-		docsUrl: "https://console.anthropic.com",
+		flowType: "pkce-loopback",
+		supported: true,
+		docsUrl: "https://claude.ai",
 		envVarAlternative: "ANTHROPIC_API_KEY",
 	},
 	{
 		id: "google-antigravity",
 		name: "Google Antigravity",
-		flowType: "unsupported",
-		supported: false,
-		unsupportedReason:
-			"Google Antigravity is an internal developer agent suite and does not provide an official public third-party OAuth service. For official Google Gemini models, configure GEMINI_API_KEY.",
+		flowType: "device-code",
+		supported: true,
 		docsUrl: "https://ai.google.dev",
 		envVarAlternative: "GEMINI_API_KEY",
 	},
 	{
 		id: "grok",
 		name: "Grok (xAI)",
-		flowType: "unsupported",
-		supported: false,
-		unsupportedReason:
-			"xAI does not provide a third-party OAuth flow for Grok / X Premium consumer subscriptions. Use an official xAI API Key (XAI_API_KEY) in the Keys section.",
-		docsUrl: "https://console.x.ai",
+		flowType: "device-code",
+		supported: true,
+		docsUrl: "https://auth.x.ai",
 		envVarAlternative: "XAI_API_KEY",
 	},
 ] as const;

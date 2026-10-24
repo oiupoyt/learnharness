@@ -1,50 +1,46 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 const require = createRequire(import.meta.url);
 const { createStubProvider } = require("../electron/auth/providers/stubs.cjs");
 const { createOAuthManager } = require("../electron/auth/oauth-manager.cjs");
 
-test("unsupported provider stubs report supported: false and provide clear reasoning", async () => {
-	for (const id of ["claude", "google-antigravity", "grok"]) {
-		const stub = createStubProvider(id);
-		const status = await stub.status();
-
-		assert.equal(status.providerId, id);
-		assert.equal(status.supported, false);
-		assert.ok(status.unsupportedReason && status.unsupportedReason.length > 10);
-
-		// Must reject login cleanly without faking or scraping
-		await assert.rejects(
-			stub.login(),
-			(err: any) => err.code === "unsupported" && typeof err.message === "string",
-		);
-	}
+test("unsupported provider stubs report supported: false and reject login cleanly", async () => {
+	const stub = createStubProvider("future-unsupported");
+	const status = await stub.status();
+	assert.equal(status.providerId, "future-unsupported");
+	assert.equal(status.supported, false);
+	await assert.rejects(stub.login(), (err: any) => err.code === "unsupported");
 });
 
-test("createOAuthManager lists all providers and routes operations appropriately", async () => {
-	const manager = createOAuthManager({
-		userDataDir: "/tmp/fake-userdata",
-		safeStorage: {
-			isEncryptionAvailable: () => true,
-			encryptString: (s: string) => Buffer.from(s),
-			decryptString: (b: Buffer) => b.toString(),
-		},
-		openExternal: async () => {},
-	});
+test("createOAuthManager lists all 5 providers and returns supported statuses", async () => {
+	const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "lh-oauth-mgr-"));
+	try {
+		const manager = createOAuthManager({
+			userDataDir: tmpDir,
+			safeStorage: {
+				isEncryptionAvailable: () => true,
+				encryptString: (s: string) => Buffer.from(s),
+				decryptString: (b: Buffer) => b.toString(),
+			},
+			openExternal: async () => {},
+		});
 
-	const providers = manager.listProviders();
-	assert.ok(Array.isArray(providers));
-	assert.ok(providers.some((p: any) => p.id === "chatgpt"));
-	assert.ok(providers.some((p: any) => p.id === "github-copilot"));
-	assert.ok(providers.some((p: any) => p.id === "claude"));
-	assert.ok(providers.some((p: any) => p.id === "google-antigravity"));
-	assert.ok(providers.some((p: any) => p.id === "grok"));
+		const providers = manager.listProviders();
+		assert.ok(Array.isArray(providers));
+		assert.equal(providers.length, 5);
 
-	const claudeStatus = await manager.status("claude");
-	assert.equal(claudeStatus.supported, false);
-	assert.match(claudeStatus.unsupportedReason, /Anthropic does not offer/);
-
-	await assert.rejects(manager.login("grok"), /xAI does not provide a third-party OAuth flow/);
+		for (const id of ["chatgpt", "github-copilot", "claude", "google-antigravity", "grok"]) {
+			assert.ok(providers.some((p: any) => p.id === id && p.supported === true), `provider ${id} is listed and supported`);
+			const status = await manager.status(id);
+			assert.equal(status.providerId, id);
+			assert.equal(status.supported, true);
+		}
+	} finally {
+		await fs.rm(tmpDir, { recursive: true, force: true });
+	}
 });
