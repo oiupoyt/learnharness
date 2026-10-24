@@ -18,7 +18,11 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve symlinks to find the real project root directory regardless of how the script was invoked
+REAL_SOURCE="$(readlink -f "${BASH_SOURCE[0]}")"
+ROOT="$(cd "$(dirname "$REAL_SOURCE")/.." && pwd)"
+export PATH="$ROOT/node_modules/.bin:$PATH"
+
 PORT="3000"
 WEB_ONLY=false
 CLEAN=false
@@ -98,10 +102,10 @@ echo "=========================================================="
 cd "$ROOT"
 
 if [ "$WEB_ONLY" = "true" ]; then
-	exec npm run dev
+	exec npm run dev -- -p "$PORT"
 else
 	export LH_DEV_URL="http://localhost:$PORT"
 	exec npx concurrently -k \
-		"next dev -p $PORT" \
+		"npm run dev -- -p $PORT" \
 		"node -e 'const http=require(\"http\"); const check=()=>http.get(\"http://localhost:$PORT\",r=>{if(r.statusCode===200)process.exit(0);else setTimeout(check,500);}).on(\"error\",()=>setTimeout(check,500)); check();' && npx electron ."
 fi
